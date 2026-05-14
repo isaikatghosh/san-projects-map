@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sanrachna Projects Map</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: { fontFamily: { sans: ['Helvetica', 'Arial', 'sans-serif'] } }
+            }
+        }
+    </script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body, html { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; display: flex; flex-direction: column; }
+        
+        #main-content { flex-grow: 1; position: relative; display: flex; overflow: hidden; }
+        #map-container { flex-grow: 1; height: 100%; position: relative; }
+        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 10; }
+        
+        #side-panel {
+            width: 400px; height: 100%; position: absolute; right: 0; top: 0; z-index: 50;
+            transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto; display: flex; flex-direction: column;
+        }
+        #side-panel.open { transform: translateX(0); }
+        
+        /* Tooltip styling */
+        .leaflet-tooltip {
+            background: rgba(17, 24, 39, 0.9); border: none; color: white; border-radius: 4px;
+            font-weight: 600; padding: 4px 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .leaflet-tooltip-top:before { border-top-color: rgba(17, 24, 39, 0.9); }
+
+        @media (max-width: 768px) {
+            #side-panel { width: 100%; }
+            .nav-links { display: none; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+
+    <!-- Top Navigation -->
+    <nav class="w-full bg-[#292929] text-[#fff] shadow-sm z-50 flex items-center justify-between px-6 h-[120px]">
+        <div class="flex flex-col items-start justify-center">
+            <a href="https://www.sanrachnabim.com/" target="_blank" class="text-white font-black text-2xl tracking-tight leading-none">SANRACHNA</a>
+            <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mt-1.5">
+                BIM & Workshare Partners
+            </span>
+        </div>
+
+        <div class="nav-links flex items-center gap-5 text-sm font-semibold text-[#fff]">
+            <a href="https://www.sanrachnabim.com/about-us" target="_blank" class="hover:text-gray-300 transition">ABOUT US</a>
+            <a href="https://www.sanrachnabim.com/project" target="_blank" class="hover:text-gray-300 transition">PROJECTS</a>
+            <a href="https://www.sanrachnabim.com/blog" target="_blank" class="hover:text-gray-300 transition">BLOG</a>
+            <a href="https://www.sanrachnabim.com/contact" target="_blank" class="bg-[#3b3a3a] hover:bg-yellow-400 hover:text-black transition rounded-[7px] h-[35px] px-5 flex items-center justify-center">CONTACT US</a>
+            <a href="https://www.sanrachnabim.com/careers" target="_blank" class="bg-[#3b3a3a] hover:bg-yellow-400 hover:text-black transition rounded-[7px] h-[35px] px-5 flex items-center justify-center">CAREER</a>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select id="region-filter" class="bg-gray-50 dark:bg-[#3b3a3a] border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm rounded-lg p-2 focus:outline-none">
+                <option value="All">All Regions</option>
+                <option value="Asia">Asia</option>
+                <option value="North America">North America</option>
+                <option value="Europe">Europe</option>
+            </select>
+            
+            <select id="theme-toggle" class="bg-gray-50 dark:bg-[#3b3a3a] border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm rounded-lg p-2 focus:outline-none" style="display: none;">
+                <option value="light">Light Theme</option>
+                <option value="dark" selected>Dark Theme</option>
+            </select>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div id="main-content">
+        <div id="map-container"><div id="map"></div></div>
+
+        <!-- Side Panel -->
+        <div id="side-panel" class="bg-white dark:bg-gray-800 shadow-2xl border-l border-gray-200 dark:border-gray-700">
+            <div class="sticky top-0 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm z-10 p-4 border-b border-gray-100 dark:border-gray-700 flex justify-end">
+                <button id="close-panel" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors bg-gray-100 dark:bg-gray-700 hover:bg-gray-600 rounded-full p-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div id="panel-content" class="p-6 flex-grow flex flex-col gap-5"></div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Integrated JSON Data -->
+    <script src="./projects.js"></script>
+
+    <script>
+
+        const projectsArray = Object.values(dbProjects);
+
+        $(document).ready(function() {
+            // Fix Leaflet Default Icon Paths
+            delete L.Icon.Default.prototype._getIconUrl;
+            L.Icon.Default.mergeOptions({
+                iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+            });
+
+            // Map Initialization with boundaries to prevent endless scrolling
+            const bounds = L.latLngBounds(L.latLng(-89.98155760646617, -180), L.latLng(89.99346179538875, 180));
+            const map = L.map('map', { 
+                zoomControl: false,
+                minZoom: 2,
+                maxBounds: bounds,
+                maxBoundsViscosity: 1.0
+            }).setView([20.0, 78.0], 4);
+            
+            L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+            // Layers
+            const tilesLight = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' });
+            const tilesDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; CartoDB' });
+            tilesDark.addTo(map);
+
+            const markersLayer = L.layerGroup().addTo(map);
+            const $sidePanel = $('#side-panel');
+
+            // --- DYNAMIC COUNTS FOR DROPDOWN ---
+            const regionCounts = { 'All': projectsArray.length };
+            projectsArray.forEach(p => {
+                regionCounts[p.continent] = (regionCounts[p.continent] || 0) + 1;
+            });
+
+            $('#region-filter option').each(function() {
+                const val = $(this).val();
+                const baseText = val === 'All' ? 'All Regions' : val;
+                $(this).text(`${baseText} (${regionCounts[val] || 0})`);
+            });
+
+            // Theme Toggle
+            $('#theme-toggle').on('change', function() {
+                if ($(this).val() === 'dark') {
+                    $('html').addClass('dark'); map.removeLayer(tilesLight); tilesDark.addTo(map);
+                } else {
+                    $('html').removeClass('dark'); map.removeLayer(tilesDark); tilesLight.addTo(map);
+                }
+            });
+
+            // Panel Close
+            $('#close-panel').on('click', () => $sidePanel.removeClass('open'));
+
+            // Open Panel Logic
+            function openProjectPanel(project) {
+                // Determine if Image should be shown
+                let imageHtml = '';
+                if (project.image && project.image !== "null" && project.image.trim() !== "") {
+                    let highResImage = project.image.replace(/w_320,h_320/, 'w_800,h_600');
+                    imageHtml = `
+                        <div class="relative w-full rounded-xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 group mb-2">
+                            <img src="${highResImage}" alt="${project.name}" class="w-full h-56 object-cover transform group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.style.display='none'">
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+                            <div class="absolute bottom-4 left-4 right-4">
+                                <span class="inline-flex bg-blue-600 text-white font-semibold px-2.5 py-1 rounded shadow-sm text-xs uppercase tracking-wider">
+                                    ${project.continent}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                const panelHtml = `
+                    ${imageHtml}
+                    <div class="flex flex-col gap-1 ${imageHtml === '' ? 'mt-2' : ''}">
+                        ${imageHtml === '' ? `<span class="inline-flex self-start bg-blue-600 text-white font-semibold px-2.5 py-1 rounded shadow-sm text-xs uppercase tracking-wider mb-2">${project.continent}</span>` : ''}
+                        <h2 class="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">${project.name}</h2>
+                        <div class="flex items-center text-gray-600 dark:text-gray-300 mt-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span class="text-base font-medium">${project.location}, ${project.country}</span>
+                        </div>
+                    </div>
+
+                    <hr class="border-gray-200 dark:border-gray-700 my-2">
+
+                    <div class="flex flex-col gap-4 text-sm flex-grow">
+                        <div>
+                            <h3 class="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider mb-1 text-xs">Project Description</h3>
+                            <p class="text-gray-800 dark:text-gray-200 leading-relaxed">${project.description || 'Details not provided.'}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider mb-1 text-xs">Scope of Work</h3>
+                            <p class="text-gray-800 dark:text-gray-200 leading-relaxed font-medium">${project['scope of work'] || '-'}</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-auto pt-4 pb-4">
+                        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center group" onclick="window.open('https://www.sanrachnabim.com/project', '_blank')">
+                            <span>View Full Project</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+
+                $('#panel-content').html(panelHtml);
+                $sidePanel.addClass('open');
+
+                // Shift map slightly on desktop to accommodate panel
+                const offsetLng = $(window).width() > 768 ? 2 : 0; 
+                map.panTo(new L.LatLng(project.lat, project.lon + offsetLng), {animate: true, duration: 0.5});
+            }
+
+            // Render Map Markers
+            function renderMarkers(filterContinent) {
+                markersLayer.clearLayers();
+                let filterBounds = L.latLngBounds();
+                let addedCount = 0;
+
+                $.each(projectsArray, function(index, project) {
+                    if (filterContinent === 'All' || project.continent === filterContinent) {
+                        if (project.lat && project.lon) {
+                            const marker = L.marker([project.lat, project.lon]).addTo(markersLayer);
+                            
+                            // Tooltip for Hover - Shows ONLY project name
+                            marker.bindTooltip(`<span>${project.name}</span>`, { direction: 'top', offset: [0, -35] });
+                            
+                            // Click opens side panel
+                            marker.on('click', () => openProjectPanel(project));
+                            
+                            filterBounds.extend([project.lat, project.lon]);
+                            addedCount++;
+                        }
+                    }
+                });
+
+                if(addedCount > 0) {
+                    map.fitBounds(filterBounds, { padding: [50, 50], maxZoom: 6 });
+                }
+            }
+
+            // Initial render & Filter event
+            renderMarkers('All');
+            $('#region-filter').on('change', function() {
+                $sidePanel.removeClass('open');
+                renderMarkers($(this).val());
+            });
+        });
+    </script>
+</body>
+</html>
